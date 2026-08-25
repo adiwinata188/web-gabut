@@ -3,17 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>CHICKEN INVASION: PRO ESPORTS EDITION</title>
+  <title>CHICKEN INVASION: NIGHTMARE EDITION</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; touch-action: none; }
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; touch-action: none; user-select: none; }
     body { background: #05050a; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden; }
-    #game-wrap { position: relative; width: 420px; height: 640px; border: 3px solid #facc15; border-radius: 12px; overflow: hidden; box-shadow: 0 0 40px rgba(250, 204, 21, 0.4); }
+    #game-wrap { position: relative; width: 420px; height: 640px; border: 3px solid #ef4444; border-radius: 12px; overflow: hidden; box-shadow: 0 0 40px rgba(239, 68, 68, 0.4); }
     canvas { display: block; background: #0b0f19; }
-    .screen { position: absolute; inset: 0; background: rgba(11, 15, 25, 0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 20px; }
-    h1 { color: #facc15; margin-bottom: 10px; font-size: 2rem; text-shadow: 0 0 15px #facc15; }
+    .screen { position: absolute; inset: 0; background: rgba(11, 15, 25, 0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 20px; z-index: 10; }
+    h1 { color: #ef4444; margin-bottom: 10px; font-size: 2rem; text-shadow: 0 0 15px #ef4444; }
     p { color: #94a3b8; margin-bottom: 20px; font-size: 0.95rem; line-height: 1.5; }
-    button { background: #facc15; color: #0b0f19; border: none; padding: 14px 28px; font-weight: bold; border-radius: 8px; cursor: pointer; font-size: 1.1rem; box-shadow: 0 0 15px #facc15; transition: 0.2s; }
-    button:hover { background: #eab308; color: #fff; transform: scale(1.05); }
+    button { background: #ef4444; color: #fff; border: none; padding: 14px 28px; font-weight: bold; border-radius: 8px; cursor: pointer; font-size: 1.1rem; box-shadow: 0 0 15px #ef4444; transition: 0.2s; margin: 5px; width: 80%; }
+    button:hover { background: #dc2626; transform: scale(1.05); }
+    .btn-upgrade { background: #38bdf8; box-shadow: 0 0 15px #38bdf8; color: #0b0f19; }
+    .btn-upgrade:hover { background: #0ea5e9; color: #fff; }
+    #pause-btn { position: absolute; top: 10px; right: 10px; background: rgba(255,255,255,0.2); padding: 5px 15px; border-radius: 5px; cursor: pointer; z-index: 5; font-weight: bold; border: none; color: white; }
     .hidden { display: none !important; }
   </style>
 </head>
@@ -21,11 +24,25 @@
 
 <div id="game-wrap">
   <canvas id="canvas" width="420" height="640"></canvas>
+  <button id="pause-btn" onclick="togglePause()">II PAUSE</button>
   
   <div id="start-screen" class="screen">
-    <h1>PRO EDITION 🐔</h1>
-    <p>Geser Pesawat (Panah / Drag HP)<br><br><b style="color:#38bdf8">Loot Neko Coin & Ambil Power-Up AWP Laser!</b></p>
+    <h1>NIGHTMARE 🐔</h1>
+    <p>Boss Bisa Nembak | HP Scaling | Upgrade System<br><b style="color:#facc15">Pencet 'P' buat Pause</b></p>
     <button onclick="startGame()">START MATCH</button>
+  </div>
+
+  <div id="pause-screen" class="screen hidden">
+    <h1 style="color: #38bdf8;">PAUSED</h1>
+    <button onclick="togglePause()" class="btn-upgrade">RESUME</button>
+  </div>
+
+  <div id="upgrade-screen" class="screen hidden">
+    <h1 style="color: #facc15;">CHECKPOINT!</h1>
+    <p>Pilih 1 Upgrade Biar Gak Cupu:</p>
+    <button class="btn-upgrade" onclick="applyUpgrade('damage')">🗡️ +1 DAMAGE (Lebih Sakit)</button>
+    <button class="btn-upgrade" onclick="applyUpgrade('firerate')">🔫 +FIRE RATE (Nembak Cepat)</button>
+    <button class="btn-upgrade" onclick="applyUpgrade('speed')">👟 +SPEED (Gerak Lincah)</button>
   </div>
 
   <div id="gameover-screen" class="screen hidden">
@@ -33,129 +50,175 @@
     <p id="final-score">Skor Lu: 0</p>
     <button onclick="startGame()">REMATCH</button>
   </div>
-
-  <div id="win-screen" class="screen hidden">
-    <h1 style="color: #22c55e;">EZ CLUTCH! 🎉</h1>
-    <p>Lu Berhasil Bantai Boss Ayam!</p>
-    <button onclick="startGame()">MAIN LAGI</button>
-  </div>
 </div>
 
 <script>
 const cvs = document.getElementById('canvas');
 const ctx = cvs.getContext('2d');
 
-let player, bullets, enemies, particles, items, floatTexts, boss, score, lives, gameLoop, isPlaying = false;
+let state = 'START'; // START, PLAYING, PAUSED, UPGRADE, GAMEOVER
+let player, bullets, bossBullets, enemies, particles, floatTexts, boss, score, lives, gameLoop;
 let keys = {}, shootTimer = 0, enemyTimer = 0, stars = [], shakeTime = 0;
+let nextBossScore = 500, nextUpgradeScore = 1000, hpMultiplier = 1;
 
-for(let i=0; i<60; i++) stars.push({x: Math.random()*cvs.width, y: Math.random()*cvs.height, r: Math.random()*2.5, s: Math.random()*1.5 + 0.5});
+for(let i=0; i<60; i++) stars.push({x: Math.random()*cvs.width, y: Math.random()*cvs.height, r: Math.random()*2, s: Math.random()*1 + 0.2});
 
-window.addEventListener('keydown', e => keys[e.code] = true);
-window.addEventListener('keyup', e => keys[e.code] = false);
+window.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if(e.key.toLowerCase() === 'p') togglePause();
+});
+window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
 cvs.addEventListener('touchmove', e => {
   e.preventDefault();
+  if(state !== 'PLAYING') return;
   let touchX = e.touches[0].clientX - cvs.getBoundingClientRect().left;
   if(player) player.x = Math.max(0, Math.min(cvs.width - player.w, touchX - player.w / 2));
 });
 
+function togglePause() {
+  if(state === 'PLAYING') {
+    state = 'PAUSED';
+    document.getElementById('pause-screen').classList.remove('hidden');
+  } else if (state === 'PAUSED') {
+    state = 'PLAYING';
+    document.getElementById('pause-screen').classList.add('hidden');
+  }
+}
+
 function startGame() {
   document.querySelectorAll('.screen').forEach(el => el.classList.add('hidden'));
   
-  player = { x: 190, y: 560, w: 40, h: 20, speed: 9, weapon: 'normal', weaponTimer: 0 };
-  bullets = []; enemies = []; particles = []; items = []; floatTexts = []; boss = null;
-  score = 0; lives = 3; isPlaying = true; shakeTime = 0;
+  player = { x: 190, y: 560, w: 40, h: 20, speed: 6, damage: 1, fireRate: 15 }; // Nerf fire rate awal
+  bullets = []; bossBullets = []; enemies = []; particles = []; floatTexts = []; boss = null;
+  score = 0; lives = 3; state = 'PLAYING'; shakeTime = 0;
+  nextBossScore = 500; nextUpgradeScore = 1000; hpMultiplier = 1;
 
   if (gameLoop) clearInterval(gameLoop);
   gameLoop = setInterval(update, 1000 / 60);
 }
 
+function applyUpgrade(type) {
+  if(type === 'damage') player.damage += 1;
+  if(type === 'firerate') player.fireRate = Math.max(5, player.fireRate - 3);
+  if(type === 'speed') player.speed += 2;
+  
+  state = 'PLAYING';
+  document.getElementById('upgrade-screen').classList.add('hidden');
+}
+
 function spawnExplosion(x, y, color) {
   for(let i=0; i<15; i++) particles.push({x: x, y: y, vx: (Math.random()-0.5)*8, vy: (Math.random()-0.5)*8, life: 25, color: color});
 }
-
 function addFloatText(x, y, text, color) {
   floatTexts.push({x: x, y: y, text: text, color: color, life: 30});
 }
 
 function update() {
-  if (!isPlaying) return;
+  if (state !== 'PLAYING') return;
 
   if(shakeTime > 0) shakeTime--;
   stars.forEach(s => { s.y += s.s; if(s.y > cvs.height) s.y = 0; });
 
-  if (keys['ArrowLeft'] && player.x > 0) player.x -= player.speed;
-  if (keys['ArrowRight'] && player.x < cvs.width - player.w) player.x += player.speed;
+  // Move Player
+  if ((keys['arrowleft'] || keys['a']) && player.x > 0) player.x -= player.speed;
+  if ((keys['arrowright'] || keys['d']) && player.x < cvs.width - player.w) player.x += player.speed;
 
-  if(player.weaponTimer > 0) { player.weaponTimer--; if(player.weaponTimer <= 0) player.weapon = 'normal'; }
+  // Cek Trigger Boss & Upgrade
+  hpMultiplier = 1 + Math.floor(score / 400) * 0.5; // Musuh makin keras
 
+  if(score >= nextUpgradeScore) {
+    nextUpgradeScore += 1000;
+    state = 'UPGRADE';
+    document.getElementById('upgrade-screen').classList.remove('hidden');
+    return;
+  }
+
+  // Shooting Player
   shootTimer++;
-  if (shootTimer > 6) {
-    if(player.weapon === 'normal') {
-      bullets.push({ x: player.x + player.w/2 - 3, y: player.y, w: 6, h: 14, type: 'normal' });
-    } else if(player.weapon === 'awp') {
-      // Laser mematikan nembus musuh!
-      bullets.push({ x: player.x + player.w/2 - 4, y: player.y, w: 8, h: 40, type: 'awp' });
-    }
+  if (shootTimer > player.fireRate) {
+    bullets.push({ x: player.x + player.w/2 - 3, y: player.y, w: 6, h: 14 });
     shootTimer = 0;
   }
 
+  // Musuh & Boss Spawner
   enemyTimer++;
-  if (!boss && score >= 300) {
-    boss = { x: 160, y: -100, w: 100, h: 80, hp: 80, maxHp: 80, vx: 4, speed: 1.5 };
-  } else if (!boss && enemyTimer > 20) {
-    enemies.push({ x: Math.random() * (cvs.width - 30), y: -30, w: 30, h: 30, speed: 4 + score/150 });
+  if (!boss && score >= nextBossScore) {
+    let bHp = 100 + (Math.floor(score/500) * 50); // HP Boss Naik Terus
+    boss = { x: 160, y: -100, w: 100, h: 80, hp: bHp, maxHp: bHp, vx: 3, speed: 1.5, shootTimer: 0 };
+    nextBossScore += 500;
+  } else if (!boss && enemyTimer > 30) {
+    let rand = Math.random();
+    if (rand < 0.2) { // 20% Mini Boss / Tank
+      enemies.push({ x: Math.random() * (cvs.width - 40), y: -40, w: 40, h: 40, speed: 1.5, hp: 5 * hpMultiplier, maxHp: 5 * hpMultiplier, type: 'tank', pts: 50 });
+    } else { // 80% Normal
+      enemies.push({ x: Math.random() * (cvs.width - 25), y: -25, w: 25, h: 25, speed: 3.5, hp: 1 * hpMultiplier, maxHp: 1 * hpMultiplier, type: 'normal', pts: 10 });
+    }
     enemyTimer = 0;
   }
 
+  // Update Bullets
   for (let i = bullets.length - 1; i >= 0; i--) {
-    bullets[i].y -= (bullets[i].type === 'awp' ? 18 : 12);
-    if (bullets[i].y < -50) bullets.splice(i, 1);
+    bullets[i].y -= 12;
+    if (bullets[i].y < -20) bullets.splice(i, 1);
   }
 
+  // Update Boss Bullets
+  for (let i = bossBullets.length - 1; i >= 0; i--) {
+    bossBullets[i].y += 6;
+    if(bossBullets[i].x < player.x + player.w && bossBullets[i].x + bossBullets[i].w > player.x && bossBullets[i].y < player.y + player.h && bossBullets[i].y + bossBullets[i].h > player.y) {
+      bossBullets.splice(i, 1);
+      lives--;
+      shakeTime = 15;
+      spawnExplosion(player.x+20, player.y, '#38bdf8');
+      if(lives <= 0) gameOver();
+    } else if (bossBullets[i].y > cvs.height) {
+      bossBullets.splice(i, 1);
+    }
+  }
+
+  // Update Visuals
   for(let i = particles.length - 1; i >= 0; i--) {
     particles[i].x += particles[i].vx; particles[i].y += particles[i].vy; particles[i].life--;
     if(particles[i].life <= 0) particles.splice(i, 1);
   }
-
   for(let i = floatTexts.length - 1; i >= 0; i--) {
     floatTexts[i].y -= 1; floatTexts[i].life--;
     if(floatTexts[i].life <= 0) floatTexts.splice(i, 1);
   }
 
-  for(let i = items.length - 1; i >= 0; i--) {
-    let it = items[i]; it.y += 3;
-    if(it.x < player.x + player.w && it.x + 16 > player.x && it.y < player.y + player.h && it.y + 16 > player.y) {
-      if(it.type === 'coin') {
-        score += 50; addFloatText(player.x, player.y, '+50 KOIN', '#facc15');
-      } else {
-        player.weapon = 'awp'; player.weaponTimer = 300; addFloatText(player.x, player.y, 'LASER ON!', '#ef4444');
-      }
-      items.splice(i, 1);
-    } else if(it.y > cvs.height) items.splice(i, 1);
-  }
-
+  // Boss Logic
   if (boss) {
     if(boss.y < 60) boss.y += boss.speed;
     else { boss.x += boss.vx; if(boss.x <= 0 || boss.x + boss.w >= cvs.width) boss.vx *= -1; }
 
+    // Boss Nembak!
+    boss.shootTimer++;
+    if(boss.shootTimer > 40) {
+      bossBullets.push({ x: boss.x + boss.w/2 - 4, y: boss.y + boss.h, w: 8, h: 20 });
+      boss.shootTimer = 0;
+    }
+
     for (let j = bullets.length - 1; j >= 0; j--) {
       let b = bullets[j];
       if (b.x < boss.x + boss.w && b.x + b.w > boss.x && b.y < boss.y + boss.h && b.y + b.h > boss.y) {
-        boss.hp -= (b.type === 'awp' ? 3 : 1);
-        spawnExplosion(b.x, b.y, '#f59e0b');
-        addFloatText(b.x, b.y, (b.type === 'awp' ? '-3' : '-1'), '#fff');
-        if(b.type !== 'awp') bullets.splice(j, 1);
+        boss.hp -= player.damage;
+        spawnExplosion(b.x, b.y, '#facc15');
+        addFloatText(b.x, b.y, `-${player.damage}`, '#fff');
+        bullets.splice(j, 1);
         
         if (boss.hp <= 0) {
           spawnExplosion(boss.x + 50, boss.y + 40, '#ef4444');
-          shakeTime = 30;
-          winGame();
+          shakeTime = 40;
+          score += 200; // Bonus bunuh boss
+          addFloatText(boss.x, boss.y, '+200 BOSS KILL', '#facc15');
+          boss = null;
         }
       }
     }
   }
 
+  // Enemies Logic
   for (let i = enemies.length - 1; i >= 0; i--) {
     let e = enemies[i]; e.y += e.speed;
 
@@ -170,18 +233,15 @@ function update() {
     for (let j = bullets.length - 1; j >= 0; j--) {
       let b = bullets[j];
       if (b.x < e.x + e.w && b.x + b.w > e.x && b.y < e.y + e.h && b.y + b.h > e.y) {
-        spawnExplosion(e.x + 15, e.y + 15, '#facc15');
+        e.hp -= player.damage;
+        bullets.splice(j, 1);
+        spawnExplosion(b.x, b.y, '#facc15');
         
-        // Drop Koin Kuning (70%) atau Kotak Merah (10%)
-        let drop = Math.random();
-        if(drop < 0.1) items.push({x: e.x, y: e.y, type: 'awp'});
-        else if(drop < 0.3) items.push({x: e.x, y: e.y, type: 'coin'});
-
-        enemies.splice(i, 1);
-        score += 10;
-        addFloatText(e.x, e.y, '+10', '#fff');
-        
-        if(b.type !== 'awp') bullets.splice(j, 1); // Laser nembus, ga hancur!
+        if(e.hp <= 0) {
+          score += e.pts;
+          addFloatText(e.x, e.y, `+${e.pts}`, e.type === 'tank' ? '#f59e0b' : '#fff');
+          enemies.splice(i, 1);
+        }
         break;
       }
     }
@@ -193,36 +253,47 @@ function update() {
 
 function draw() {
   ctx.save();
-  if(shakeTime > 0) ctx.translate((Math.random()-0.5)*10, (Math.random()-0.5)*10);
+  if(shakeTime > 0) ctx.translate((Math.random()-0.5)*8, (Math.random()-0.5)*8);
   
   ctx.clearRect(0, 0, cvs.width, cvs.height);
 
   ctx.fillStyle = '#fff';
   stars.forEach(s => ctx.fillRect(s.x, s.y, s.r, s.r));
 
-  ctx.fillStyle = player.weapon === 'awp' ? '#ef4444' : '#38bdf8';
-  ctx.shadowBlur = 15; ctx.shadowColor = ctx.fillStyle;
+  // Player
+  ctx.fillStyle = '#38bdf8';
+  ctx.shadowBlur = 10; ctx.shadowColor = '#38bdf8';
   ctx.fillRect(player.x, player.y, player.w, player.h);
   ctx.shadowBlur = 0;
 
-  bullets.forEach(b => {
-    ctx.fillStyle = b.type === 'awp' ? '#ef4444' : '#38bdf8';
-    ctx.fillRect(b.x, b.y, b.w, b.h);
-  });
+  // Bullets Player
+  ctx.fillStyle = '#38bdf8';
+  bullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
 
-  items.forEach(it => {
-    ctx.fillStyle = it.type === 'coin' ? '#facc15' : '#ef4444';
-    ctx.shadowBlur = 10; ctx.shadowColor = ctx.fillStyle;
-    ctx.fillRect(it.x, it.y, 16, 16);
-    ctx.shadowBlur = 0;
-  });
-
+  // Boss Bullets
   ctx.fillStyle = '#ef4444';
-  enemies.forEach(e => { ctx.beginPath(); ctx.arc(e.x + 15, e.y + 15, 15, 0, Math.PI * 2); ctx.fill(); });
+  ctx.shadowBlur = 10; ctx.shadowColor = '#ef4444';
+  bossBullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
+  ctx.shadowBlur = 0;
 
+  // Enemies
+  enemies.forEach(e => { 
+    ctx.fillStyle = e.type === 'tank' ? '#f59e0b' : '#ef4444';
+    ctx.beginPath(); ctx.arc(e.x + e.w/2, e.y + e.h/2, e.w/2, 0, Math.PI * 2); ctx.fill(); 
+    // Darah Mini Boss
+    if(e.type === 'tank' && e.hp < e.maxHp) {
+      ctx.fillStyle = '#000'; ctx.fillRect(e.x, e.y - 10, e.w, 4);
+      ctx.fillStyle = '#22c55e'; ctx.fillRect(e.x, e.y - 10, (e.hp/e.maxHp)*e.w, 4);
+    }
+  });
+
+  // Boss
   if (boss) {
     ctx.fillStyle = '#991b1b';
     ctx.fillRect(boss.x, boss.y, boss.w, boss.h);
+    // Mata Boss biar serem
+    ctx.fillStyle = '#facc15'; ctx.fillRect(boss.x+20, boss.y+50, 15, 10); ctx.fillRect(boss.x+65, boss.y+50, 15, 10);
+    // HP Bar
     ctx.fillStyle = '#000'; ctx.fillRect(50, 20, 320, 15);
     ctx.fillStyle = '#facc15'; ctx.fillRect(50, 20, (boss.hp / boss.maxHp) * 320, 15);
   }
@@ -237,24 +308,19 @@ function draw() {
     ctx.globalAlpha = 1.0;
   });
 
+  // HUD UI
   ctx.fillStyle = '#fff'; 
   ctx.fillText(`SCORE: ${score}`, 15, 615);
+  ctx.fillText(`DMG: ${player.damage} | SPD: ${player.speed}`, 15, 595);
   ctx.fillText(`LIVES: ${'❤️'.repeat(lives)}`, 260, 615);
 
   ctx.restore();
 }
 
 function gameOver() {
-  isPlaying = false; clearInterval(gameLoop);
+  state = 'GAMEOVER';
   document.getElementById('final-score').innerText = `Skor Akhir: ${score}`;
   document.getElementById('gameover-screen').classList.remove('hidden');
-}
-
-function winGame() {
-  setTimeout(() => {
-    isPlaying = false; clearInterval(gameLoop);
-    document.getElementById('win-screen').classList.remove('hidden');
-  }, 1500);
 }
 </script>
 </body>
