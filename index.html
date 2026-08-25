@@ -2,18 +2,17 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CHICKEN BUTT: SPACE INVADERS</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>CHICKEN INVASION FIXED SKOR</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: sans-serif; touch-action: none; }
     body { background: #090d16; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden; }
-    #game-wrap { position: relative; width: 400px; height: 600px; border: 3px solid #38bdf8; border-radius: 12px; overflow: hidden; box-shadow: 0 0 30px rgba(56, 189, 248, 0.4); }
+    #game-wrap { position: relative; width: 400px; height: 600px; border: 3px solid #38bdf8; border-radius: 12px; overflow: hidden; }
     canvas { display: block; background: #0f172a; }
     .screen { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 20px; }
     h1 { color: #38bdf8; margin-bottom: 10px; font-size: 1.8rem; }
     p { color: #94a3b8; margin-bottom: 20px; font-size: 0.9rem; }
-    button { background: #38bdf8; color: #0f172a; border: none; padding: 12px 24px; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 1rem; transition: 0.2s; }
-    button:hover { background: #0ea5e9; color: #fff; transform: scale(1.05); }
+    button { background: #38bdf8; color: #0f172a; border: none; padding: 12px 24px; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 1rem; }
     .hidden { display: none !important; }
   </style>
 </head>
@@ -22,24 +21,21 @@
 <div id="game-wrap">
   <canvas id="canvas" width="400" height="600"></canvas>
   
-  <!-- Start Screen -->
   <div id="start-screen" class="screen">
     <h1>CHICKEN INVASION 🐔</h1>
-    <p>Tembak 50 Ayam buat WIN! Jangan sampe kena tabrak!</p>
+    <p>Geser Pesawat (Panah Keyboard / Drag HP)<br>Peluru Otomatis Nembak!</p>
     <button onclick="startGame()">START GAME</button>
   </div>
 
-  <!-- Game Over Screen -->
   <div id="gameover-screen" class="screen hidden">
     <h1 style="color: #ef4444;">GAME OVER 💀</h1>
     <p id="final-score">Skor Lu: 0</p>
     <button onclick="startGame()">MAIN LAGI</button>
   </div>
 
-  <!-- Win Screen -->
   <div id="win-screen" class="screen hidden">
     <h1 style="color: #22c55e;">VICTORY! 🎉</h1>
-    <p>Lu Berhasil Namatin Game Cupu Ini!</p>
+    <p>Lu Berhasil Namatin Game Ini!</p>
     <button onclick="startGame()">MAIN LAGI</button>
   </div>
 </div>
@@ -49,97 +45,93 @@ const cvs = document.getElementById('canvas');
 const ctx = cvs.getContext('2d');
 
 let player, bullets, enemies, score, lives, gameLoop, isPlaying = false;
+let keys = {};
+let shootTimer = 0;
+let enemyTimer = 0;
 
-// Web Audio API Synth (Tanpa butuh file mp3 luar!)
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-function playSound(freq, type, duration) {
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  let osc = audioCtx.createOscillator();
-  let gain = audioCtx.createGain();
-  osc.type = type;
-  osc.frequency.value = freq;
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-  osc.start();
-  gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
-  osc.stop(audioCtx.currentTime + duration);
-}
+window.addEventListener('keydown', e => keys[e.code] = true);
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+cvs.addEventListener('touchmove', e => {
+  e.preventDefault();
+  let rect = cvs.getBoundingClientRect();
+  let touchX = e.touches[0].clientX - rect.left;
+  if(player) player.x = Math.max(0, Math.min(cvs.width - player.w, touchX - player.w / 2));
+});
 
 function startGame() {
   document.getElementById('start-screen').classList.add('hidden');
   document.getElementById('gameover-screen').classList.add('hidden');
   document.getElementById('win-screen').classList.add('hidden');
   
-  player = { x: 180, y: 530, w: 40, h: 20, speed: 6 };
+  player = { x: 180, y: 530, w: 40, h: 20, speed: 8 };
   bullets = [];
   enemies = [];
   score = 0;
   lives = 3;
   isPlaying = true;
 
-  clearInterval(gameLoop);
+  if (gameLoop) clearInterval(gameLoop);
   gameLoop = setInterval(update, 1000 / 60);
 }
 
-// Controls
-let keys = {};
-window.onkeydown = e => { keys[e.code] = true; if(e.code === 'Space' && isPlaying) shoot(); };
-window.onkeyup = e => keys[e.code] = false;
-cvs.addEventListener('touchmove', e => {
-  let rect = cvs.getBoundingClientRect();
-  player.x = e.touches[0].clientX - rect.left - player.w/2;
-});
-
-function shoot() {
-  bullets.push({ x: player.x + player.w/2 - 3, y: player.y, w: 6, h: 12 });
-  playSound(600, 'square', 0.1);
-}
-
-let enemyTimer = 0;
 function update() {
-  // Move Player
+  if (!isPlaying) return;
+
+  // Gerak Player
   if (keys['ArrowLeft'] && player.x > 0) player.x -= player.speed;
   if (keys['ArrowRight'] && player.x < cvs.width - player.w) player.x += player.speed;
 
-  // Spawn Enemies
+  // Auto Shoot
+  shootTimer++;
+  if (shootTimer > 8) {
+    bullets.push({ x: player.x + player.w/2 - 3, y: player.y, w: 6, h: 12 });
+    shootTimer = 0;
+  }
+
+  // Spawn Musuh
   enemyTimer++;
-  if (enemyTimer > 40) {
-    enemies.push({ x: Math.random() * (cvs.width - 30), y: -30, w: 30, h: 30, speed: 2 + score/10 });
+  if (enemyTimer > 30) {
+    enemies.push({ x: Math.random() * (cvs.width - 30), y: -30, w: 30, h: 30, speed: 3 });
     enemyTimer = 0;
   }
 
-  // Update Bullets
-  bullets.forEach((b, i) => {
-    b.y -= 8;
-    if (b.y < 0) bullets.splice(i, 1);
-  });
+  // Update Peluru
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    bullets[i].y -= 10;
+    if (bullets[i].y < 0) bullets.splice(i, 1);
+  }
 
-  // Update Enemies & Collisions
-  enemies.forEach((e, ei) => {
+  // Update Musuh & Deteksi Tabrakan (FIXED)
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    let e = enemies[i];
     e.y += e.speed;
-    
-    // Hit Player
+
+    // Kena Player
     if (e.x < player.x + player.w && e.x + e.w > player.x && e.y < player.y + player.h && e.y + e.h > player.y) {
-      enemies.splice(ei, 1);
+      enemies.splice(i, 1);
       lives--;
-      playSound(150, 'sawtooth', 0.3);
       if (lives <= 0) gameOver();
+      continue;
     }
 
-    // Hit Bullets
-    bullets.forEach((b, bi) => {
+    // Kena Peluru (SKOR PASTI NAMBAH!)
+    for (let j = bullets.length - 1; j >= 0; j--) {
+      let b = bullets[j];
       if (b.x < e.x + e.w && b.x + b.w > e.x && b.y < e.y + e.h && b.y + b.h > e.y) {
-        enemies.splice(ei, 1);
-        bullets.splice(bi, 1);
-        score += 1;
-        playSound(800, 'sine', 0.08);
-        if (score >= 50) winGame();
+        enemies.splice(i, 1);
+        bullets.splice(j, 1);
+        score += 10; // Skor bertambah 10 poin per musuh!
+        if (score >= 500) winGame();
+        break;
       }
-    });
+    }
 
-    if (e.y > cvs.height) enemies.splice(ei, 1);
-  });
+    // Lewat bawah
+    if (e.y > cvs.height) {
+      enemies.splice(i, 1);
+    }
+  }
 
   draw();
 }
@@ -147,15 +139,15 @@ function update() {
 function draw() {
   ctx.clearRect(0, 0, cvs.width, cvs.height);
 
-  // Draw Player (Pesawat)
+  // Player
   ctx.fillStyle = '#38bdf8';
   ctx.fillRect(player.x, player.y, player.w, player.h);
 
-  // Draw Bullets
+  // Peluru
   ctx.fillStyle = '#facc15';
   bullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
 
-  // Draw Enemies (Ayam)
+  // Musuh
   ctx.fillStyle = '#ef4444';
   enemies.forEach(e => {
     ctx.beginPath();
@@ -163,11 +155,11 @@ function draw() {
     ctx.fill();
   });
 
-  // Draw UI
+  // UI / HUD
   ctx.fillStyle = '#fff';
-  ctx.font = '16px sans-serif';
-  ctx.fillText(`Score: ${score}/50`, 10, 25);
-  ctx.fillText(`Lives: ${'❤️'.repeat(lives)}`, 290, 25);
+  ctx.font = 'bold 16px sans-serif';
+  ctx.fillText(`SKOR: ${score}`, 15, 30);
+  ctx.fillText(`NYAWA: ${'❤️'.repeat(lives)}`, 260, 30);
 }
 
 function gameOver() {
